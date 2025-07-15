@@ -1,7 +1,8 @@
+// server.js
 import express from 'express';
 import cors from 'cors';
-import mysql from 'mysql2';
 import dotenv from 'dotenv';
+import db from './db.js'; // your db pool
 
 dotenv.config();
 
@@ -9,133 +10,137 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const db = mysql.createConnection({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'user',
-  database: process.env.DB_NAME || 'hospital_db'
-});
-
 // ✅ Fetch all patients
-app.get('/api/patients', (req, res) => {
-  db.query('SELECT * FROM patients', (err, results) => {
-    if (err) return res.status(500).json({ error: err });
-    res.json(results);
-  });
-});
-
-// ✅ Fetch patient by ID with their appointments
-app.get('/api/patients/:id', (req, res) => {
-  const patientId = req.params.id;
-  db.query(
-    `SELECT p.*, a.id as appointment_id, a.date, a.reason 
-     FROM patients p LEFT JOIN appointments a ON p.id = a.patient_id 
-     WHERE p.id = ?`, 
-    [patientId], 
-    (err, results) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json(results);
-    });
+app.get('/api/patients', async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT * FROM patients');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching patients:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ✅ Add new patient
-app.post('/api/patients', (req, res) => {
-  const { name, age, gender } = req.body;
-  db.query('INSERT INTO patients (name, age, gender) VALUES (?, ?, ?)',
-    [name, age, gender],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json({ id: result.insertId, name, age, gender });
-    });
+app.post('/api/patients', async (req, res) => {
+  try {
+    const { name, age, gender } = req.body;
+    const result = await db.query(
+      'INSERT INTO patients (name, age, gender) VALUES ($1, $2, $3) RETURNING *',
+      [name, age, gender]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error adding patient:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-// ✅ Fetch all appointments (with patient names)
-app.get('/api/appointments', (req, res) => {
-  db.query(
-    `SELECT a.*, p.name as patient_name 
-     FROM appointments a JOIN patients p ON a.patient_id = p.id`,
-    (err, results) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json(results);
-    });
+// ✅ Fetch all appointments
+app.get('/api/appointments', async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT a.*, p.name as patient_name 
+      FROM appointments a 
+      JOIN patients p ON a.patient_id = p.id
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching appointments:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ✅ Add new appointment
-app.post('/api/appointments', (req, res) => {
-  const { patient_id, date, reason } = req.body;
-  db.query(
-    'INSERT INTO appointments (patient_id, date, reason) VALUES (?, ?, ?)',
-    [patient_id, date, reason],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json({ id: result.insertId, patient_id, date, reason });
-    });
+app.post('/api/appointments', async (req, res) => {
+  try {
+    const { patient_id, date, reason } = req.body;
+    const result = await db.query(
+      'INSERT INTO appointments (patient_id, date, reason) VALUES ($1, $2, $3) RETURNING *',
+      [patient_id, date, reason]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error adding appointment:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-// Update patient
-app.put('/api/patients/:id', (req, res) => {
-  const { name, age, gender } = req.body;
-  const id = req.params.id;
-  db.query('UPDATE patients SET name=?, age=?, gender=? WHERE id=?',
-    [name, age, gender, id],
-    (err) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json({ success: true });
-    });
+// ✅ Update patient
+app.put('/api/patients/:id', async (req, res) => {
+  try {
+    const { name, age, gender } = req.body;
+    const { id } = req.params;
+    await db.query(
+      'UPDATE patients SET name=$1, age=$2, gender=$3 WHERE id=$4',
+      [name, age, gender, id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating patient:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-// Delete patient
-app.delete('/api/patients/:id', (req, res) => {
-  const id = req.params.id;
-  db.query('DELETE FROM patients WHERE id=?', [id],
-    (err) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json({ success: true });
-    });
+// ✅ Delete patient
+app.delete('/api/patients/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM patients WHERE id=$1', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting patient:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-// Update appointment
-app.put('/api/appointments/:id', (req, res) => {
-  const { patient_id, date, reason } = req.body;
-  const id = req.params.id;
-  db.query('UPDATE appointments SET patient_id=?, date=?, reason=? WHERE id=?',
-    [patient_id, date, reason, id],
-    (err) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json({ success: true });
-    });
+// ✅ Update appointment
+app.put('/api/appointments/:id', async (req, res) => {
+  try {
+    const { patient_id, date, reason } = req.body;
+    const { id } = req.params;
+    await db.query(
+      'UPDATE appointments SET patient_id=$1, date=$2, reason=$3 WHERE id=$4',
+      [patient_id, date, reason, id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating appointment:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-// Delete appointment
-app.delete('/api/appointments/:id', (req, res) => {
-  const id = req.params.id;
-  db.query('DELETE FROM appointments WHERE id=?', [id],
-    (err) => {
-      if (err) return res.status(500).json({ error: err });
-      res.json({ success: true });
-    });
+// ✅ Delete appointment
+app.delete('/api/appointments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM appointments WHERE id=$1', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting appointment:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-// Get single patient + their appointments
-app.get('/api/patients/:id/details', (req, res) => {
-  const patientId = req.params.id;
-
-  db.query('SELECT * FROM patients WHERE id = ?', [patientId], (err, patientResults) => {
-    if (err) return res.status(500).json({ error: err });
-    if (patientResults.length === 0) return res.status(404).json({ error: 'Patient not found' });
-
-    db.query('SELECT * FROM appointments WHERE patient_id = ?', [patientId], (err2, appointmentResults) => {
-      if (err2) return res.status(500).json({ error: err2 });
-
-      res.json({
-        patient: patientResults[0],
-        appointments: appointmentResults
-      });
+// ✅ Fetch single patient + appointments
+app.get('/api/patients/:id/details', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const patientResult = await db.query('SELECT * FROM patients WHERE id=$1', [id]);
+    if (patientResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    const appointmentsResult = await db.query('SELECT * FROM appointments WHERE patient_id=$1', [id]);
+    res.json({
+      patient: patientResult.rows[0],
+      appointments: appointmentsResult.rows
     });
-  });
+  } catch (err) {
+    console.error('Error fetching patient details:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
-
 
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));

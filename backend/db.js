@@ -1,15 +1,13 @@
-import mysql from 'mysql2';
+// db.js
+import pkg from 'pg';
 import dotenv from 'dotenv';
 dotenv.config();
 
-export const db = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME
+const { Pool } = pkg;
+
+const db = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
 
-db.connect((err) => {
-  if (err) throw err;
-  console.log('✅ Connected to MySQL Database');
-});
+export default db;
